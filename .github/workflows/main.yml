@@ -14,7 +14,7 @@ jobs:
     steps:
       - name: Prep - Mask password
         run: |
-          $password = 'SimpleQuany55@'
+          $password = 'SimpleBrenda55@'
           Write-Output "::add-mask::$password"
           echo "RDP_PASSWORD=$password" >> $env:GITHUB_ENV
 
