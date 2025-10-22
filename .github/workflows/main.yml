@@ -1,0 +1,147 @@
+name: Secure RDP (Quan)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rdp:
+    runs-on: windows-latest
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Prep - Mask password
+        run: |
+          $password = 'SimpleQuany55@'
+          Write-Output "::add-mask::$password"
+          echo "RDP_PASSWORD=$password" >> $env:GITHUB_ENV
+
+      - name: Create RDP user "Quan"
+        run: |
+          $password = $env:RDP_PASSWORD
+          if (-not $password) { Write-Error "Password not set"; exit 1 }
+          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+
+          if (Get-LocalUser -Name "Quan" -ErrorAction SilentlyContinue) {
+            Remove-LocalUser -Name "Quan" -ErrorAction SilentlyContinue
+          }
+
+          New-LocalUser -Name "Quan" -Password $securePass -AccountNeverExpires -Description "Temporary RDP user for GitHub Actions"
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "Quan"
+          Add-LocalGroupMember -Group "Administrators" -Member "Quan"
+          Write-Host "User Quan created."
+
+      - name: Install Tailscale
+        run: |
+          Write-Host "Downloading and installing Tailscale..."
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe"
+          $installer = "$env:TEMP\tailscale-setup.exe"
+          Invoke-WebRequest -Uri $tsUrl -OutFile $installer -UseBasicParsing
+          Start-Process -FilePath $installer -ArgumentList "/silent" -Wait -NoNewWindow
+          Remove-Item $installer -Force -ErrorAction SilentlyContinue
+
+          if (-not (Test-Path "$env:ProgramFiles\Tailscale\tailscale.exe")) {
+            Write-Error "Tailscale install failed."
+            exit 1
+          }
+
+      - name: Connect Tailscale (ephemeral)
+        env:
+          TSKEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
+        run: |
+          if (-not $env:TSKEY) { Write-Error "TAILSCALE_AUTH_KEY secret missing"; exit 1 }
+
+          $hostname = "gh-runner-$env:GITHUB_RUN_ID-$(Get-Date -Format 'HHmmss')"
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=$env:TSKEY --hostname=$hostname --ephemeral
+          
+          # Wait for IPv4
+          $tsIP = $null
+          $retries = 0
+          while (-not $tsIP -and $retries -lt 20) {
+              $tsIP = (& "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4) -join ","
+              if ($tsIP) { break }
+              Start-Sleep -Seconds 5
+              $retries++
+          }
+
+          if (-not $tsIP) {
+              Write-Error "Tailscale IP not assigned after waiting. Exiting."
+              exit 1
+          }
+
+          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+          Write-Host "Tailscale IP: $tsIP"
+
+      - name: Configure RDP + Firewall
+        run: |
+          # Enable RDP and adjust authentication
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
+          Restart-Service -Name TermService -Force -ErrorAction SilentlyContinue
+
+          # Add firewall rule limited to Tailscale interface
+          $iface = (Get-NetAdapter | Where-Object { $_.InterfaceDescription -match "Tailscale" -or $_.Name -match "tailscale" } | Select-Object -First 1).Name
+          netsh advfirewall firewall delete rule name="RDP-Tailscale" > $null 2>&1
+          if ($iface) {
+            netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389 interface="$iface"
+            Write-Host "Firewall rule added for interface: $iface"
+          } else {
+            netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
+            Write-Warning "Tailscale interface not found; fallback rule added."
+          }
+
+      - name: Verify RDP connectivity
+        run: |
+          $target = $env:TAILSCALE_IP
+          if (-not $target) { Write-Error "TAILSCALE_IP not set"; exit 1 }
+
+          $test = Test-NetConnection -ComputerName $target -Port 3389 -InformationLevel "Detailed"
+          if (-not $test.TcpTestSucceeded) {
+              Write-Error "TCP connection to $target:3389 failed."
+              exit 1
+          }
+          Write-Host "RDP port reachable successfully!"
+
+      - name: Job Summary
+        run: |
+          echo "### ✅ RDP Access" >> $env:GITHUB_STEP_SUMMARY
+          echo "- Address: $env:TAILSCALE_IP" >> $env:GITHUB_STEP_SUMMARY
+          echo "- Username: Quan" >> $env:GITHUB_STEP_SUMMARY
+          echo "- Password: [masked]" >> $env:GITHUB_STEP_SUMMARY
+          echo "" >> $env:GITHUB_STEP_SUMMARY
+          echo "Connect via your Tailscale client to the above IP using RDP." >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Keep runner alive
+        run: |
+          Write-Host "Runner active. Cancel the workflow to terminate RDP session."
+          while ($true) {
+            Write-Host "[$(Get-Date -Format o)] RDP Active"
+            Start-Sleep -Seconds 300
+          }
+
+      - name: Cleanup (always runs)
+        if: always()
+        run: |
+          Write-Host "Cleanup: removing firewall rule, stopping Tailscale, removing user Quan."
+
+          netsh advfirewall firewall delete rule name="RDP-Tailscale" > $null 2>&1
+
+          if (Test-Path "$env:ProgramFiles\Tailscale\tailscale.exe") {
+            & "$env:ProgramFiles\Tailscale\tailscale.exe" down || Write-Host "tailscale down failed"
+            Start-Sleep -Seconds 2
+            & "$env:ProgramFiles\Tailscale\tailscale.exe" logout || Write-Host "tailscale logout failed"
+          }
+
+          if (Get-LocalUser -Name "Quan" -ErrorAction SilentlyContinue) {
+            try {
+              Remove-LocalUser -Name "Quan" -ErrorAction Stop
+              Write-Host "Removed user Quan."
+            } catch {
+              Write-Warning "Failed to remove user Quan: $($_.Exception.Message)"
+            }
+          }
+
+          Remove-Item Env:\RDP_PASSWORD -ErrorAction SilentlyContinue
