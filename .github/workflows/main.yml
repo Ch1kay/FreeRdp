@@ -32,7 +32,7 @@ jobs:
           New-LocalUser -Name "Quan" -Password $securePass -AccountNeverExpires -Description "Temporary RDP user for GitHub Actions"
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "Quan"
           Add-LocalGroupMember -Group "Administrators" -Member "Quan"
-          Write-Host "User Quan created."
+          Write-Host "User Quan created successfully."
 
       - name: Install Tailscale
         run: |
@@ -44,7 +44,7 @@ jobs:
           Remove-Item $installer -Force -ErrorAction SilentlyContinue
 
           if (-not (Test-Path "$env:ProgramFiles\Tailscale\tailscale.exe")) {
-            Write-Error "Tailscale install failed."
+            Write-Error "Tailscale installation failed."
             exit 1
           }
 
@@ -84,16 +84,10 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
           Restart-Service -Name TermService -Force -ErrorAction SilentlyContinue
 
-          # Add firewall rule limited to Tailscale interface
-          $iface = (Get-NetAdapter | Where-Object { $_.InterfaceDescription -match "Tailscale" -or $_.Name -match "tailscale" } | Select-Object -First 1).Name
+          # Simplified firewall rule (no interface restriction)
           netsh advfirewall firewall delete rule name="RDP-Tailscale" > $null 2>&1
-          if ($iface) {
-            netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389 interface="$iface"
-            Write-Host "Firewall rule added for interface: $iface"
-          } else {
-            netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
-            Write-Warning "Tailscale interface not found; fallback rule added."
-          }
+          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
+          Write-Host "Firewall rule added for RDP on port 3389."
 
       - name: Verify RDP connectivity
         run: |
