@@ -14,7 +14,8 @@ jobs:
     steps:
       - name: Prep - Mask password
         run: |
-          $password = 'SimpleBrenda55@'
+          # Use a password that passes Windows complexity rules
+          $password = 'SecureQny55@!'
           Write-Output "::add-mask::$password"
           echo "RDP_PASSWORD=$password" >> $env:GITHUB_ENV
 
@@ -47,14 +48,15 @@ jobs:
             exit 1
           }
 
-      - name: Connect Tailscale (ephemeral)
+      - name: Connect Tailscale
         env:
           TSKEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
         run: |
           if (-not $env:TSKEY) { Write-Error "TAILSCALE_AUTH_KEY secret missing"; exit 1 }
 
           $hostname = "gh-runner-$env:GITHUB_RUN_ID-$(Get-Date -Format 'HHmmss')"
-          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=$env:TSKEY --hostname=$hostname --ephemeral
+          Write-Host "Bringing up Tailscale with hostname $hostname"
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=$env:TSKEY --hostname=$hostname --unattended
           
           # Wait for IPv4
           $tsIP = $null
@@ -76,7 +78,7 @@ jobs:
 
       - name: Configure RDP + Firewall
         run: |
-          # Enable RDP and adjust authentication
+          # Enable RDP and disable NLA
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
@@ -112,11 +114,11 @@ jobs:
           echo "- Username: Quan" >> $env:GITHUB_STEP_SUMMARY
           echo "- Password: [masked]" >> $env:GITHUB_STEP_SUMMARY
           echo "" >> $env:GITHUB_STEP_SUMMARY
-          echo "Connect via your Tailscale client to the above IP using RDP." >> $env:GITHUB_STEP_SUMMARY
+          echo "Connect via your Tailscale client using RDP to the above IP." >> $env:GITHUB_STEP_SUMMARY
 
       - name: Keep runner alive
         run: |
-          Write-Host "Runner active. Cancel the workflow to terminate RDP session."
+          Write-Host "Runner active. Cancel workflow to terminate RDP session."
           while ($true) {
             Write-Host "[$(Get-Date -Format o)] RDP Active"
             Start-Sleep -Seconds 300
