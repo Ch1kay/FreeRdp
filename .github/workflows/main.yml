@@ -1,4 +1,4 @@
-name: Secure RDP (Hero)
+name: Secure RDP (Kevinn)
 
 on:
   workflow_dispatch:
@@ -19,20 +19,20 @@ jobs:
           Write-Output "::add-mask::$password"
           echo "RDP_PASSWORD=$password" >> $env:GITHUB_ENV
 
-      - name: Create RDP user "Hero"
+      - name: Create RDP user "Kevinn"
         run: |
           $password = $env:RDP_PASSWORD
           if (-not $password) { Write-Error "Password not set"; exit 1 }
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
 
-          if (Get-LocalUser -Name "Hero" -ErrorAction SilentlyContinue) {
-            Remove-LocalUser -Name "Hero" -ErrorAction SilentlyContinue
+          if (Get-LocalUser -Name "Kevinn" -ErrorAction SilentlyContinue) {
+            Remove-LocalUser -Name "Kevinn" -ErrorAction SilentlyContinue
           }
 
-          New-LocalUser -Name "Hero" -Password $securePass -AccountNeverExpires -Description "Temporary RDP user for GitHub Actions"
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "Hero"
-          Add-LocalGroupMember -Group "Administrators" -Member "Hero"
-          Write-Host "User Hero created successfully."
+          New-LocalUser -Name "Kevinn" -Password $securePass -AccountNeverExpires -Description "Temporary RDP user for GitHub Actions"
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "Kevinn"
+          Add-LocalGroupMember -Group "Administrators" -Member "Kevinn"
+          Write-Host "User Kevinn created successfully."
 
       - name: Install Tailscale
         run: |
@@ -105,7 +105,7 @@ jobs:
         run: |
           echo "### ✅ RDP Access" >> $env:GITHUB_STEP_SUMMARY
           echo "- Address: $env:TAILSCALE_IP" >> $env:GITHUB_STEP_SUMMARY
-          echo "- Username: Hero" >> $env:GITHUB_STEP_SUMMARY
+          echo "- Username: Kevinn" >> $env:GITHUB_STEP_SUMMARY
           echo "- Password: [masked]" >> $env:GITHUB_STEP_SUMMARY
           echo "" >> $env:GITHUB_STEP_SUMMARY
           echo "Connect via your Tailscale client using RDP to the above IP." >> $env:GITHUB_STEP_SUMMARY
@@ -121,7 +121,7 @@ jobs:
       - name: Cleanup (always runs)
         if: always()
         run: |
-          Write-Host "Cleanup: removing firewall rule, stopping Tailscale, removing user Hero."
+          Write-Host "Cleanup: removing firewall rule, stopping Tailscale, removing user Kevinn."
 
           netsh advfirewall firewall delete rule name="RDP-Tailscale" > $null 2>&1
 
@@ -131,12 +131,12 @@ jobs:
             & "$env:ProgramFiles\Tailscale\tailscale.exe" logout || Write-Host "tailscale logout failed"
           }
 
-          if (Get-LocalUser -Name "Hero" -ErrorAction SilentlyContinue) {
+          if (Get-LocalUser -Name "Kevinn" -ErrorAction SilentlyContinue) {
             try {
-              Remove-LocalUser -Name "Hero" -ErrorAction Stop
-              Write-Host "Removed user Hero."
+              Remove-LocalUser -Name "Kevinn" -ErrorAction Stop
+              Write-Host "Removed user Kevinn."
             } catch {
-              Write-Warning "Failed to remove user Hero: $($_.Exception.Message)"
+              Write-Warning "Failed to remove user Kevinn: $($_.Exception.Message)"
             }
           }
 
