@@ -31,11 +31,6 @@ jobs:
           New-LocalUser -Name "Quan" -Password $securePass -AccountNeverExpires -Description "Temporary RDP user for GitHub Actions"
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "Quan"
           Add-LocalGroupMember -Group "Administrators" -Member "Quan"
-
-          if (-not (Get-LocalUser -Name "Quan")) {
-            Write-Error "User creation failed"
-            exit 1
-          }
           Write-Host "User Quan created."
 
       - name: Install Tailscale
@@ -51,7 +46,6 @@ jobs:
             Write-Error "Tailscale install failed."
             exit 1
           }
-          Write-Host "Tailscale installed successfully."
 
       - name: Connect Tailscale (ephemeral)
         env:
@@ -65,8 +59,7 @@ jobs:
           # Wait for IPv4
           $tsIP = $null
           $retries = 0
-          $maxRetries = 20
-          while (-not $tsIP -and $retries -lt $maxRetries) {
+          while (-not $tsIP -and $retries -lt 20) {
               $tsIP = (& "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4) -join ","
               if ($tsIP) { break }
               Start-Sleep -Seconds 5
@@ -83,7 +76,7 @@ jobs:
 
       - name: Configure RDP + Firewall
         run: |
-          # Enable RDP, disable NLA, and restart the RDP service
+          # Enable RDP and adjust authentication
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "SecurityLayer" -Value 0 -Force
@@ -97,12 +90,11 @@ jobs:
             Write-Host "Firewall rule added for interface: $iface"
           } else {
             netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
-            Write-Warning "Tailscale interface not found; fallback to general rule."
+            Write-Warning "Tailscale interface not found; fallback rule added."
           }
 
       - name: Verify RDP connectivity
         run: |
-          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
           $target = $env:TAILSCALE_IP
           if (-not $target) { Write-Error "TAILSCALE_IP not set"; exit 1 }
 
@@ -120,11 +112,11 @@ jobs:
           echo "- Username: Quan" >> $env:GITHUB_STEP_SUMMARY
           echo "- Password: [masked]" >> $env:GITHUB_STEP_SUMMARY
           echo "" >> $env:GITHUB_STEP_SUMMARY
-          echo "Connect via Tailscale IP using any RDP client." >> $env:GITHUB_STEP_SUMMARY
+          echo "Connect via your Tailscale client to the above IP using RDP." >> $env:GITHUB_STEP_SUMMARY
 
       - name: Keep runner alive
         run: |
-          Write-Host "Runner active. Cancel workflow to terminate RDP session."
+          Write-Host "Runner active. Cancel the workflow to terminate RDP session."
           while ($true) {
             Write-Host "[$(Get-Date -Format o)] RDP Active"
             Start-Sleep -Seconds 300
